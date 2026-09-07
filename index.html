@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#000000">
+<title>Bilateral Light Visualizer</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000;color:#fff;font-family:system-ui,-apple-system,Segoe UI,sans-serif;overscroll-behavior:none}
+#stage{position:fixed;inset:0;touch-action:none;background:#000}canvas{width:100%;height:100%;display:block}
+#status{position:fixed;top:max(14px,env(safe-area-inset-top));right:16px;font-size:12px;color:#ffffff88;z-index:4;pointer-events:none}
+#hint{position:fixed;top:max(14px,env(safe-area-inset-top));left:50%;transform:translateX(-50%);font-size:11px;color:#ffffff70;z-index:4;white-space:nowrap;pointer-events:none}
+#controls{position:fixed;z-index:10;left:50%;bottom:max(12px,env(safe-area-inset-bottom));transform:translateX(-50%);width:min(470px,calc(100vw - 20px));max-height:80vh;overflow:auto;background:#151519ef;border:1px solid #ffffff22;border-radius:18px;padding:15px;backdrop-filter:blur(12px);box-shadow:0 14px 45px #0008;transition:transform .28s ease,opacity .28s ease;touch-action:pan-y}
+#controls.hidden{transform:translate(-50%,calc(100% + 100px));opacity:0;pointer-events:none}
+#handle{width:50px;height:5px;border-radius:99px;background:#ffffff3d;margin:-3px auto 11px}
+h1{font-size:17px;margin:0 0 4px}.sub{font-size:12px;color:#aaaab3;line-height:1.4;margin:0 0 12px}
+.row{display:grid;grid-template-columns:116px 1fr 54px;gap:8px;align-items:center;margin:9px 0}label{font-size:13px;color:#aaaab3}input[type=range]{width:100%}output{font-size:12px;color:#aaaab3;text-align:right}
+.flex{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:10px}.checks{display:flex;gap:7px;flex-direction:column;margin-top:10px}.check{display:flex;gap:8px;align-items:center}
+button{border:1px solid #ffffff24;background:#29292f;color:#fff;border-radius:11px;padding:10px 12px;font-weight:650}button.primary{background:#f4f4f4;color:#111}button.danger{background:#5c292e}button:disabled{opacity:.45}
+.section{margin-top:14px;padding-top:13px;border-top:1px solid #ffffff17}.title{font-size:13px;font-weight:700;margin-bottom:7px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+#recordState{margin-top:8px;padding:9px;border-radius:10px;background:#ffffff0d;color:#aaaab3;font-size:12px;line-height:1.4}
+#downloads a{display:block;margin-top:8px;padding:10px 12px;border:1px solid #ffffff20;border-radius:10px;background:#ffffff0d;color:#fff;text-decoration:none}
+#cameraPreview{display:none;position:fixed;right:16px;bottom:16px;width:160px;aspect-ratio:4/3;object-fit:cover;border-radius:12px;border:1px solid #ffffff44;z-index:5;background:#111}
+#toast{position:fixed;z-index:30;left:50%;top:50%;transform:translate(-50%,-50%);padding:12px 16px;border-radius:12px;background:#16161bee;border:1px solid #ffffff22;font-size:13px;opacity:0;pointer-events:none;transition:.2s;text-align:center}#toast.show{opacity:1}
+@media(max-width:600px){#controls{width:calc(100vw - 14px);padding:13px}.row{grid-template-columns:103px 1fr 50px}#hint{display:none}button{padding:10px}}
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="visualizer"></canvas></div>
+<div id="status">00:00</div>
+<div id="hint">Tap: play/pause · Double tap: fullscreen · Swipe ↓ hide · Swipe ↑ show</div>
+<video id="cameraPreview" autoplay playsinline muted></video>
+<div id="toast"></div>
+
+<div id="controls">
+<div id="handle"></div>
+<h1>Bilateral Light Visualizer</h1>
+<p class="sub">Desktop and phone controls. Recordings are created locally on your device.</p>
+
+<div class="row"><label>Crossing time</label><input id="speed" type="range" min=".5" max="8" step=".1" value="2"><output id="speedOut">2.0s</output></div>
+<div class="row"><label>Light size</label><input id="size" type="range" min="10" max="140" value="42"><output id="sizeOut">42px</output></div>
+<div class="row"><label>Edge margin</label><input id="margin" type="range" min="0" max="20" value="5"><output id="marginOut">5%</output></div>
+<div class="row"><label>Glow</label><input id="glow" type="range" min="0" max="100" value="28"><output id="glowOut">28px</output></div>
+
+<div class="flex"><label>Light</label><input id="dotColor" type="color" value="#ffffff"><label>Background</label><input id="bgColor" type="color" value="#000000"></div>
+<div class="checks">
+<label class="check"><input id="trailToggle" type="checkbox"> Soft horizontal trail</label>
+<label class="check"><input id="smoothToggle" type="checkbox" checked> Smooth sinusoidal motion</label>
+</div>
+<div class="flex">
+<button id="play" class="primary">Pause</button><button id="fullscreen">Fullscreen</button><button id="hide">Recording Mode</button><button id="reset">Reset Timer</button>
+</div>
+
+<div class="section">
+<div class="title">Session Recorder</div>
+<p class="sub">Video records the moving light and can optionally include microphone audio and your front camera. Audio records only the microphone while the light keeps running.</p>
+<div class="checks">
+<label class="check"><input id="recMic" type="checkbox" checked> Include microphone in video</label>
+<label class="check"><input id="recCam" type="checkbox"> Include camera in video</label>
+<label class="check"><input id="showCam" type="checkbox"> Show separate camera preview</label>
+</div>
+<div class="grid">
+<button id="startVideo">Record Video</button><button id="startAudio">Record Audio</button>
+<button id="stopRecord" class="danger" disabled>Stop & Save</button><button id="clearDownloads">Clear Files</button>
+</div>
+<div id="recordState">Recorder idle.</div>
+<div id="downloads"></div>
+</div>
+</div>
+
+<script>
+(()=>{
+const $=id=>document.getElementById(id);
+const canvas=$('visualizer'),ctx=canvas.getContext('2d',{alpha:false}),controls=$('controls'),cam=$('cameraPreview');
+const speed=$('speed'),size=$('size'),margin=$('margin'),glow=$('glow'),dotColor=$('dotColor'),bgColor=$('bgColor'),trail=$('trailToggle'),smooth=$('smoothToggle');
+const recMic=$('recMic'),recCam=$('recCam'),showCam=$('showCam'),state=$('recordState'),downloads=$('downloads');
+let playing=true,elapsed=0,last=performance.now(),recorder=null,chunks=[],userMedia=null,recordingMode=null,activeMime='',recordingStarted=0;
+
+function resize(){const d=Math.min(devicePixelRatio||1,2);canvas.width=Math.round(innerWidth*d);canvas.height=Math.round(innerHeight*d);canvas.style.width=innerWidth+'px';canvas.style.height=innerHeight+'px';ctx.setTransform(d,0,0,d,0,0)}addEventListener('resize',resize);resize();
+function toast(m){$('toast').textContent=m;$('toast').classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>$('toast').classList.remove('show'),1600)}
+function sync(){ $('speedOut').value=Number(speed.value).toFixed(1)+'s';$('sizeOut').value=size.value+'px';$('marginOut').value=margin.value+'%';$('glowOut').value=glow.value+'px'}[speed,size,margin,glow].forEach(x=>x.addEventListener('input',sync));sync();
+function rgba(hex,a){let n=parseInt(hex.slice(1),16);return`rgba(${n>>16&255},${n>>8&255},${n&255},${a})`}
+function rr(x,y,w,h,r){ctx.beginPath();if(ctx.roundRect)ctx.roundRect(x,y,w,h,r);else ctx.rect(x,y,w,h)}
+function draw(now){
+ let dt=(now-last)/1000;last=now;if(playing)elapsed+=Math.min(dt,.1);
+ let w=innerWidth,h=innerHeight;ctx.fillStyle=bgColor.value;ctx.fillRect(0,0,w,h);
+ let cross=Number(speed.value),phase=(elapsed%(cross*2))/(cross*2),p=smooth.checked?(1-Math.cos(phase*Math.PI*2))/2:(phase<.5?phase*2:(1-phase)*2);
+ let m=Number(margin.value)/100,x=(m+p*(1-2*m))*w,y=h/2,r=Number(size.value)/2;
+ if(trail.checked){let tw=Math.max(180,w*.25),g=ctx.createLinearGradient(x-tw/2,y,x+tw/2,y);g.addColorStop(0,'rgba(255,255,255,0)');g.addColorStop(.5,rgba(dotColor.value,.2));g.addColorStop(1,'rgba(255,255,255,0)');ctx.fillStyle=g;ctx.fillRect(x-tw/2,y-3,tw,6)}
+ ctx.save();ctx.shadowColor=dotColor.value;ctx.shadowBlur=Number(glow.value);ctx.fillStyle=dotColor.value;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();ctx.restore();
+ if(recordingMode==='video'&&recCam.checked&&userMedia&&cam.readyState>=2){let pw=Math.min(240,w*.26),ph=pw*.75,pad=18,px=w-pw-pad,py=h-ph-pad;ctx.save();rr(px,py,pw,ph,14);ctx.clip();ctx.drawImage(cam,px,py,pw,ph);ctx.restore();ctx.strokeStyle='#ffffff55';ctx.lineWidth=1;rr(px,py,pw,ph,14);ctx.stroke()}
+ $('status').textContent=String(Math.floor(elapsed/60)).padStart(2,'0')+':'+String(Math.floor(elapsed%60)).padStart(2,'0');
+ if(recorder&&recorder.state==='recording'){let s=Math.floor((Date.now()-recordingStarted)/1000);state.textContent=`Recording ${recordingMode} · ${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`}
+ requestAnimationFrame(draw)
+}requestAnimationFrame(draw);
+
+function togglePlay(){playing=!playing;$('play').textContent=playing?'Pause':'Play';toast(playing?'Playing':'Paused')}
+function hideControls(){controls.classList.add('hidden')}function showControls(){controls.classList.remove('hidden')}function toggleControls(){controls.classList.toggle('hidden')}
+async function toggleFullscreen(){try{if(!document.fullscreenElement&&document.documentElement.requestFullscreen)await document.documentElement.requestFullscreen();else if(document.fullscreenElement&&document.exitFullscreen)await document.exitFullscreen();else{toggleControls();toast('True fullscreen unavailable — controls hidden instead')}}catch(e){toast('Fullscreen blocked by this browser')}}
+$('play').onclick=e=>{e.stopPropagation();togglePlay()};$('fullscreen').onclick=e=>{e.stopPropagation();toggleFullscreen()};$('hide').onclick=e=>{e.stopPropagation();hideControls()};$('reset').onclick=e=>{e.stopPropagation();elapsed=0};
+addEventListener('keydown',e=>{if(e.code==='Space'&&!['INPUT','BUTTON'].includes(document.activeElement.tagName)){e.preventDefault();togglePlay()}if(e.key.toLowerCase()==='h')toggleControls();if(e.key.toLowerCase()==='f')toggleFullscreen()});
+
+let sy=0,sx=0,st=0,lastTap=0,tapTimer=null;
+$('stage').addEventListener('touchstart',e=>{if(e.touches.length!==1)return;let t=e.touches[0];sy=t.clientY;sx=t.clientX;st=Date.now()},{passive:true});
+$('stage').addEventListener('touchend',e=>{let t=e.changedTouches[0],dy=t.clientY-sy,dx=t.clientX-sx,dist=Math.hypot(dx,dy),dur=Date.now()-st;
+ if(Math.abs(dy)>70&&Math.abs(dy)>Math.abs(dx)*1.25){clearTimeout(tapTimer);dy>0?hideControls():showControls();return}
+ if(dist<18&&dur<450){let n=Date.now();if(n-lastTap<320){clearTimeout(tapTimer);lastTap=0;toggleFullscreen()}else{lastTap=n;tapTimer=setTimeout(()=>{togglePlay();lastTap=0},330)}}},{passive:true});
+$('stage').addEventListener('dblclick',e=>{e.preventDefault();toggleFullscreen()});
+
+function mime(kind){let p=kind==='video'?['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4']:['audio/webm;codecs=opus','audio/webm','audio/mp4'];return p.find(x=>MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(x))||''}
+async function gum(mic,video){if(!mic&&!video)return null;if(!navigator.mediaDevices?.getUserMedia)throw Error('Camera/microphone access is not supported in this browser.');return navigator.mediaDevices.getUserMedia({audio:!!mic,video:video?{facingMode:'user'}:false})}
+function buttons(on){$('startVideo').disabled=on;$('startAudio').disabled=on;$('stopRecord').disabled=!on}
+function cleanup(){if(userMedia){userMedia.getTracks().forEach(t=>t.stop());userMedia=null}cam.srcObject=null;cam.style.display='none'}
+function finish(kind){let blob=new Blob(chunks,{type:activeMime}),url=URL.createObjectURL(blob),ext=activeMime.includes('mp4')?(kind==='video'?'mp4':'m4a'):'webm',stamp=new Date().toISOString().replace(/[:.]/g,'-'),a=document.createElement('a');a.href=url;a.download=`bilateral-session-${stamp}.${ext}`;a.textContent=`Save ${kind} recording (${(blob.size/1048576).toFixed(1)} MB)`;downloads.prepend(a);state.textContent=`${kind==='video'?'Video':'Audio'} ready. Tap the file link above to save or share it.`;buttons(false);cleanup();recorder=null;chunks=[];recordingMode=null;activeMime=''}
+async function startVideo(){if(recorder)return;if(!window.MediaRecorder||!canvas.captureStream){state.textContent='Video recording is not supported by this browser.';toast('Video recording unavailable');return}
+ try{userMedia=await gum(recMic.checked,recCam.checked);if(userMedia&&recCam.checked){cam.srcObject=userMedia;cam.style.display=showCam.checked?'block':'none';await cam.play().catch(()=>{})}let s=canvas.captureStream(60);if(userMedia&&recMic.checked)userMedia.getAudioTracks().forEach(t=>s.addTrack(t));let m=mime('video');activeMime=m||'video/webm';chunks=[];recorder=m?new MediaRecorder(s,{mimeType:m}):new MediaRecorder(s);recordingMode='video';recordingStarted=Date.now();recorder.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data)};recorder.onstop=()=>finish('video');recorder.start(1000);buttons(true);toast('Video recording started')}
+ catch(e){cleanup();recorder=null;recordingMode=null;state.textContent='Could not start video: '+e.message;toast('Permission denied or unavailable')}}
+async function startAudio(){if(recorder)return;if(!window.MediaRecorder){state.textContent='Audio recording is not supported by this browser.';return}
+ try{userMedia=await gum(true,false);let m=mime('audio');activeMime=m||'audio/webm';chunks=[];recorder=m?new MediaRecorder(userMedia,{mimeType:m}):new MediaRecorder(userMedia);recordingMode='audio';recordingStarted=Date.now();recorder.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data)};recorder.onstop=()=>finish('audio');recorder.start(1000);buttons(true);toast('Audio recording started')}
+ catch(e){cleanup();recorder=null;recordingMode=null;state.textContent='Could not start audio: '+e.message;toast('Microphone permission denied')}}
+$('startVideo').onclick=e=>{e.stopPropagation();startVideo()};$('startAudio').onclick=e=>{e.stopPropagation();startAudio()};$('stopRecord').onclick=e=>{e.stopPropagation();if(recorder&&recorder.state!=='inactive')recorder.stop()};$('clearDownloads').onclick=e=>{e.stopPropagation();downloads.innerHTML='';state.textContent='Recorder idle.'};
+showCam.onchange=()=>cam.style.display=(showCam.checked&&recordingMode==='video'&&recCam.checked)?'block':'none';
+})();
+</script>
+</body>
+</html>
